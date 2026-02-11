@@ -1,0 +1,3 @@
+ALTER TABLE attempts
+  ADD COLUMN IF NOT EXISTS error TEXT;
+

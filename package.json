@@ -1,0 +1,17 @@
+{
+  "name": "exametest",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "dev": "concurrently -n web,api,worker -c blue,green,yellow \"pnpm -C apps/web dev\" \"pnpm -C apps/api dev\" \"pnpm -C apps/worker dev\"",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down",
+    "infra:logs": "docker compose logs -f",
+    "typecheck": "pnpm -r typecheck",
+    "db:migrate": "pnpm -C packages/db migrate"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.3"
+  }
+}

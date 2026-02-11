@@ -1,0 +1,208 @@
+import type { FastifyInstance } from "fastify";
+import { CreateAttemptRequestSchema, DEMO_USER_ID, JOB_NAMES, SubmitAttemptRequestSchema } from "@exametest/shared";
+import { pool, ensureDemoUser } from "../db.js";
+import { queue } from "../queue.js";
+
+export const registerAttemptRoutes = async (app: FastifyInstance) => {
+  app.post("/attempts", async (req, reply) => {
+    const parsed = CreateAttemptRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Invalid payload", details: parsed.error.flatten() });
+    }
+
+    await ensureDemoUser();
+    const { paperId } = parsed.data;
+
+    const paperRes = await pool.query(`SELECT id, status FROM papers WHERE id = $1 AND user_id = $2`, [paperId, DEMO_USER_ID]);
+    const paper = paperRes.rows[0];
+    if (!paper) {
+      return reply.status(404).send({ error: "Paper not found" });
+    }
+    if (paper.status !== "READY") {
+      return reply.status(409).send({ error: "Paper not ready", status: paper.status });
+    }
+
+    const attemptRes = await pool.query<{ id: string }>(
+      `INSERT INTO attempts (paper_id, user_id, status)
+       VALUES ($1, $2, 'IN_PROGRESS')
+       RETURNING id`,
+      [paperId, DEMO_USER_ID]
+    );
+
+    const attemptId = attemptRes.rows[0]?.id;
+    if (!attemptId) {
+      throw new Error("Failed to create attempt");
+    }
+
+    return reply.status(201).send({ id: attemptId, status: "IN_PROGRESS" });
+  });
+
+  app.get("/attempts/:id", async (req, reply) => {
+    const id = (req.params as { id: string }).id;
+
+    const attemptRes = await pool.query(
+      `SELECT id, paper_id AS "paperId", status, error, started_at AS "startedAt", submitted_at AS "submittedAt", graded_at AS "gradedAt"
+       FROM attempts
+       WHERE id = $1 AND user_id = $2`,
+      [id, DEMO_USER_ID]
+    );
+    const attempt = attemptRes.rows[0];
+    if (!attempt) {
+      return reply.status(404).send({ error: "Not found" });
+    }
+
+    const paperRes = await pool.query(
+      `SELECT id, title, status
+       FROM papers
+       WHERE id = $1 AND user_id = $2`,
+      [attempt.paperId, DEMO_USER_ID]
+    );
+    const paper = paperRes.rows[0];
+    if (!paper) {
+      return reply.status(500).send({ error: "Paper missing" });
+    }
+
+    const qRes = await pool.query(
+      `SELECT id, type, difficulty, prompt, options, tags
+       FROM questions
+       WHERE paper_id = $1
+       ORDER BY created_at ASC`,
+      [attempt.paperId]
+    );
+
+    const ansRes = await pool.query(
+      `SELECT question_id AS "questionId", answer_text AS "answerText", answer_option_id AS "answerOptionId"
+       FROM answers
+       WHERE attempt_id = $1`,
+      [id]
+    );
+
+    return { attempt, paper, questions: qRes.rows, answers: ansRes.rows };
+  });
+
+  app.post("/attempts/:id/submit", async (req, reply) => {
+    const id = (req.params as { id: string }).id;
+
+    const parsed = SubmitAttemptRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Invalid payload", details: parsed.error.flatten() });
+    }
+
+    const attemptRes = await pool.query<{ status: string; paperId: string }>(
+      `SELECT status, paper_id AS "paperId"
+       FROM attempts
+       WHERE id = $1 AND user_id = $2`,
+      [id, DEMO_USER_ID]
+    );
+    const attempt = attemptRes.rows[0];
+    if (!attempt) {
+      return reply.status(404).send({ error: "Not found" });
+    }
+    if (attempt.status !== "IN_PROGRESS") {
+      return reply.status(409).send({ error: "Attempt not in progress", status: attempt.status });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      for (const a of parsed.data.answers) {
+        await client.query(
+          `INSERT INTO answers (attempt_id, question_id, answer_text, answer_option_id)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (attempt_id, question_id)
+           DO UPDATE SET answer_text = EXCLUDED.answer_text, answer_option_id = EXCLUDED.answer_option_id`,
+          [id, a.questionId, a.text ?? null, a.optionId ?? null]
+        );
+      }
+
+      await client.query(
+        `UPDATE attempts
+         SET status = 'SUBMITTED', submitted_at = NOW(), error = NULL
+         WHERE id = $1 AND user_id = $2`,
+        [id, DEMO_USER_ID]
+      );
+
+      await client.query("COMMIT");
+    } catch (err) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // ignore
+      }
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    await queue.add(JOB_NAMES.gradeAttempt, { attemptId: id }, { attempts: 3, backoff: { type: "exponential", delay: 1000 } });
+
+    return { id, status: "SUBMITTED" };
+  });
+
+  app.get("/attempts/:id/result", async (req, reply) => {
+    const id = (req.params as { id: string }).id;
+
+    const attemptRes = await pool.query(
+      `SELECT id, paper_id AS "paperId", status, error, started_at AS "startedAt", submitted_at AS "submittedAt", graded_at AS "gradedAt"
+       FROM attempts
+       WHERE id = $1 AND user_id = $2`,
+      [id, DEMO_USER_ID]
+    );
+    const attempt = attemptRes.rows[0];
+    if (!attempt) {
+      return reply.status(404).send({ error: "Not found" });
+    }
+
+    if (attempt.status === "IN_PROGRESS") {
+      return reply.status(409).send({ error: "Attempt not submitted", status: attempt.status });
+    }
+
+    const qRes = await pool.query(
+      `SELECT id, type, prompt, options,
+              answer_key AS "answerKey",
+              rubric, tags
+       FROM questions
+       WHERE paper_id = $1
+       ORDER BY created_at ASC`,
+      [attempt.paperId]
+    );
+
+    const ansRes = await pool.query(
+      `SELECT question_id AS "questionId", answer_text AS "answerText", answer_option_id AS "answerOptionId"
+       FROM answers
+       WHERE attempt_id = $1`,
+      [id]
+    );
+
+    const gradeRes = await pool.query(
+      `SELECT question_id AS "questionId", score, max_score AS "maxScore", verdict, feedback_md AS "feedbackMd", citations, confidence
+       FROM grades
+       WHERE attempt_id = $1`,
+      [id]
+    );
+
+    const total = gradeRes.rows.reduce(
+      (acc, g) => {
+        acc.score += Number(g.score);
+        acc.max += Number(g.maxScore);
+        return acc;
+      },
+      { score: 0, max: 0 }
+    );
+
+    return { attempt, totals: total, questions: qRes.rows, answers: ansRes.rows, grades: gradeRes.rows };
+  });
+
+  app.get("/wrong-items", async () => {
+    const res = await pool.query(
+      `SELECT wi.question_id AS "questionId", wi.last_wrong_at AS "lastWrongAt", wi.wrong_count AS "wrongCount", wi.weak_tags AS "weakTags"
+       FROM wrong_items wi
+       WHERE wi.user_id = $1
+       ORDER BY wi.last_wrong_at DESC
+       LIMIT 200`,
+      [DEMO_USER_ID]
+    );
+    return { items: res.rows };
+  });
+};
