@@ -9,3 +9,19 @@ export const JOB_NAMES = {
 } as const;
 
 export type JobName = (typeof JOB_NAMES)[keyof typeof JOB_NAMES];
+
+// ----------------------------
+// Realtime events (Redis pub/sub)
+// ----------------------------
+//
+// The worker publishes status changes to Redis channels, and the API exposes
+// these channels via Server-Sent Events (SSE) endpoints to the web app.
+//
+// Channel naming is kept in shared to avoid API/worker drift.
+export const EVENTS_PREFIX = "exametest:events";
+
+export const EVENT_CHANNELS = {
+  source: (sourceId: string) => `${EVENTS_PREFIX}:source:${sourceId}`,
+  paper: (paperId: string) => `${EVENTS_PREFIX}:paper:${paperId}`,
+  attempt: (attemptId: string) => `${EVENTS_PREFIX}:attempt:${attemptId}`
+} as const;

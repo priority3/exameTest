@@ -10,7 +10,7 @@ const app = Fastify({
 });
 
 await app.register(cors, {
-  origin: [/^http:\/\/localhost:\d+$/],
+  origin: [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/],
   credentials: true
 });
 

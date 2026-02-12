@@ -91,7 +91,7 @@ export default async function SourcePage(props: { params: Promise<{ id: string }
           source.status === "FAILED" ? (
             <p className="muted">Source processing failed. Fix the error and re-import the source.</p>
           ) : (
-            <SourceAutoRefresh />
+            <SourceAutoRefresh sourceId={source.id} initialStatus={source.status} />
           )
         ) : (
           <GeneratePaperForm sourceId={source.id} />

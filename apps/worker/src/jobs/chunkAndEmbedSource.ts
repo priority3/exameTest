@@ -2,6 +2,8 @@ import type { Job } from "bullmq";
 import { pool } from "../db.js";
 import { env } from "../env.js";
 import { embedTexts, hasOpenAI } from "../llm/openai.js";
+import { EVENT_CHANNELS } from "@exametest/shared";
+import { publishEvent } from "../events.js";
 
 type DocumentRow = {
   id: string;
@@ -113,6 +115,11 @@ export const chunkAndEmbedSource = async (job: Job<{ sourceId: string }>) => {
        WHERE id = $1`,
       [sourceId]
     );
+    await publishEvent(EVENT_CHANNELS.source(sourceId), {
+      type: "source",
+      sourceId,
+      status: "PROCESSING"
+    });
 
     // Clean existing chunks (cascade deletes embeddings)
     await client.query(
@@ -156,6 +163,12 @@ export const chunkAndEmbedSource = async (job: Job<{ sourceId: string }>) => {
        WHERE id = $1`,
       [sourceId, "No chunks generated (empty input?)"]
     );
+    await publishEvent(EVENT_CHANNELS.source(sourceId), {
+      type: "source",
+      sourceId,
+      status: "FAILED",
+      error: "No chunks generated (empty input?)"
+    });
     return;
   }
 
@@ -210,4 +223,9 @@ export const chunkAndEmbedSource = async (job: Job<{ sourceId: string }>) => {
      WHERE id = $1`,
     [sourceId]
   );
+  await publishEvent(EVENT_CHANNELS.source(sourceId), {
+    type: "source",
+    sourceId,
+    status: "READY"
+  });
 };

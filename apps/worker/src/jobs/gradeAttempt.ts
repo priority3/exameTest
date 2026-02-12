@@ -1,7 +1,8 @@
 import type { Job } from "bullmq";
-import { DEMO_USER_ID, LlmGradeSchema } from "@exametest/shared";
+import { DEMO_USER_ID, EVENT_CHANNELS, LlmGradeSchema } from "@exametest/shared";
 import { pool } from "../db.js";
 import { chatJson, hasOpenAI } from "../llm/openai.js";
+import { publishEvent } from "../events.js";
 
 type AttemptRow = {
   id: string;
@@ -317,6 +318,11 @@ export const gradeAttempt = async (job: Job<{ attemptId: string }>) => {
     );
 
     await client.query("COMMIT");
+    await publishEvent(EVENT_CHANNELS.attempt(attemptId), {
+      type: "attempt",
+      attemptId,
+      status: "GRADED"
+    });
   } catch (err) {
     try {
       await client.query("ROLLBACK");

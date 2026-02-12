@@ -1,7 +1,9 @@
 import type { FastifyInstance } from "fastify";
-import { CreatePaperRequestSchema, DEMO_USER_ID, JOB_NAMES } from "@exametest/shared";
+import { CreatePaperRequestSchema, DEMO_USER_ID, EVENT_CHANNELS, JOB_NAMES } from "@exametest/shared";
 import { pool, ensureDemoUser } from "../db.js";
 import { queue } from "../queue.js";
+import { subscribeChannel } from "../realtime.js";
+import { initSse, sseComment, sseSend } from "../sse.js";
 
 const defaultPaperTitle = (sourceTitle: string): string => {
   return `${sourceTitle} - Paper`;
@@ -91,5 +93,51 @@ export const registerPaperRoutes = async (app: FastifyInstance) => {
     );
 
     return { paperId: id, questions: qRes.rows };
+  });
+
+  // Server-Sent Events (SSE): push paper status updates to the UI.
+  app.get("/papers/:id/events", async (req, reply) => {
+    const id = (req.params as { id: string }).id;
+
+    const paperRes = await pool.query(`SELECT id, status, error FROM papers WHERE id = $1 AND user_id = $2`, [
+      id,
+      DEMO_USER_ID
+    ]);
+    const paper = paperRes.rows[0];
+    if (!paper) {
+      return reply.status(404).send({ error: "Not found" });
+    }
+
+    initSse(reply);
+    reply.hijack();
+
+    sseSend(reply, { event: "snapshot", data: { type: "paper", paperId: id, status: paper.status, error: paper.error } });
+
+    const channel = EVENT_CHANNELS.paper(id);
+    const unsubscribe = await subscribeChannel(channel, (message) => {
+      if (reply.raw.writableEnded) return;
+      let data: any = null;
+      try {
+        data = JSON.parse(message);
+      } catch {
+        data = { type: "paper", paperId: id, raw: message };
+      }
+      sseSend(reply, { event: "update", data });
+    });
+
+    const keepAlive = setInterval(() => {
+      if (reply.raw.writableEnded) return;
+      sseComment(reply, "keep-alive");
+    }, 15_000);
+
+    req.raw.on("close", async () => {
+      clearInterval(keepAlive);
+      await unsubscribe();
+      try {
+        reply.raw.end();
+      } catch {
+        // ignore
+      }
+    });
   });
 };

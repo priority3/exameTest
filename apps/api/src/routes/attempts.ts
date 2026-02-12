@@ -1,7 +1,15 @@
 import type { FastifyInstance } from "fastify";
-import { CreateAttemptRequestSchema, DEMO_USER_ID, JOB_NAMES, SubmitAttemptRequestSchema } from "@exametest/shared";
+import {
+  CreateAttemptRequestSchema,
+  DEMO_USER_ID,
+  EVENT_CHANNELS,
+  JOB_NAMES,
+  SubmitAttemptRequestSchema
+} from "@exametest/shared";
 import { pool, ensureDemoUser } from "../db.js";
 import { queue } from "../queue.js";
+import { subscribeChannel } from "../realtime.js";
+import { initSse, sseComment, sseSend } from "../sse.js";
 
 export const registerAttemptRoutes = async (app: FastifyInstance) => {
   app.post("/attempts", async (req, reply) => {
@@ -204,5 +212,54 @@ export const registerAttemptRoutes = async (app: FastifyInstance) => {
       [DEMO_USER_ID]
     );
     return { items: res.rows };
+  });
+
+  // Server-Sent Events (SSE): push attempt grading status updates to the UI.
+  app.get("/attempts/:id/events", async (req, reply) => {
+    const id = (req.params as { id: string }).id;
+
+    const attemptRes = await pool.query(`SELECT id, status, error FROM attempts WHERE id = $1 AND user_id = $2`, [
+      id,
+      DEMO_USER_ID
+    ]);
+    const attempt = attemptRes.rows[0];
+    if (!attempt) {
+      return reply.status(404).send({ error: "Not found" });
+    }
+
+    initSse(reply);
+    reply.hijack();
+
+    sseSend(reply, {
+      event: "snapshot",
+      data: { type: "attempt", attemptId: id, status: attempt.status, error: attempt.error }
+    });
+
+    const channel = EVENT_CHANNELS.attempt(id);
+    const unsubscribe = await subscribeChannel(channel, (message) => {
+      if (reply.raw.writableEnded) return;
+      let data: any = null;
+      try {
+        data = JSON.parse(message);
+      } catch {
+        data = { type: "attempt", attemptId: id, raw: message };
+      }
+      sseSend(reply, { event: "update", data });
+    });
+
+    const keepAlive = setInterval(() => {
+      if (reply.raw.writableEnded) return;
+      sseComment(reply, "keep-alive");
+    }, 15_000);
+
+    req.raw.on("close", async () => {
+      clearInterval(keepAlive);
+      await unsubscribe();
+      try {
+        reply.raw.end();
+      } catch {
+        // ignore
+      }
+    });
   });
 };

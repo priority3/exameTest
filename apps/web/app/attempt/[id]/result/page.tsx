@@ -46,12 +46,14 @@ export default function AttemptResultPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AttemptResult | null>(null);
   const [pollCount, setPollCount] = useState(0);
+  const [mode, setMode] = useState<"sse" | "poll">("sse");
 
   useEffect(() => {
     if (!id) return;
 
     let cancelled = false;
-    let timer: any = null;
+    let pollTimer: any = null;
+    let es: EventSource | null = null;
 
     const fetchOnce = async () => {
       try {
@@ -65,9 +67,16 @@ export default function AttemptResultPage() {
         setError(null);
 
         const status = String(json?.attempt?.status ?? "");
-        if (status === "GRADED" || json?.attempt?.error) {
-          if (timer) clearInterval(timer);
-          timer = null;
+        const done = status === "GRADED" || Boolean(json?.attempt?.error);
+        if (done) {
+          if (pollTimer) clearInterval(pollTimer);
+          pollTimer = null;
+          try {
+            es?.close();
+          } catch {
+            // ignore
+          }
+          es = null;
         }
       } catch (e) {
         if (cancelled) return;
@@ -77,20 +86,82 @@ export default function AttemptResultPage() {
       }
     };
 
-    const tick = async () => {
-      await fetchOnce();
-      if (cancelled) return;
-
-      setPollCount((c) => c + 1);
+    const startPolling = () => {
+      if (pollTimer) return;
+      setMode("poll");
+      pollTimer = setInterval(async () => {
+        await fetchOnce();
+        if (cancelled) return;
+        setPollCount((c) => c + 1);
+      }, 2000);
     };
 
-    // Poll every 2s; stop automatically when the API reports GRADED or error.
-    timer = setInterval(tick, 2000);
-    tick();
+    const parseEvent = (data: any): any => {
+      if (!data) return null;
+      if (typeof data === "string") {
+        try {
+          return JSON.parse(data);
+        } catch {
+          return { raw: data };
+        }
+      }
+      return data;
+    };
+
+    const handleAttemptEvent = async (payload: any) => {
+      const status = String(payload?.status ?? "");
+      const hasErr = Boolean(payload?.error);
+
+      // Re-fetch result whenever we hear something relevant.
+      if (status || hasErr) {
+        await fetchOnce();
+      }
+
+      if (status === "GRADED" || hasErr) {
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = null;
+        try {
+          es?.close();
+        } catch {
+          // ignore
+        }
+        es = null;
+      }
+    };
+
+    // Fetch once immediately for first paint.
+    fetchOnce();
+
+    // Prefer SSE; fallback to polling if SSE fails.
+    try {
+      es = new EventSource(`${apiBase}/attempts/${id}/events`);
+      es.onopen = () => {
+        setMode("sse");
+      };
+      es.onerror = () => {
+        try {
+          es?.close();
+        } catch {
+          // ignore
+        }
+        es = null;
+        startPolling();
+      };
+      es.addEventListener("snapshot", (ev: MessageEvent) => void handleAttemptEvent(parseEvent(ev.data)));
+      es.addEventListener("update", (ev: MessageEvent) => void handleAttemptEvent(parseEvent(ev.data)));
+      es.onmessage = (ev) => void handleAttemptEvent(parseEvent((ev as any)?.data));
+    } catch {
+      startPolling();
+    }
 
     return () => {
       cancelled = true;
-      if (timer) clearInterval(timer);
+      if (pollTimer) clearInterval(pollTimer);
+      try {
+        es?.close();
+      } catch {
+        // ignore
+      }
     };
   }, [apiBase, id]);
 
@@ -158,7 +229,7 @@ export default function AttemptResultPage() {
           <p className="muted">This attempt failed to grade. Fix the issue and resubmit (or re-run the job).</p>
         ) : safe?.attempt.status !== "GRADED" ? (
           <p className="muted">
-            Grading is still running. This page auto-refreshes every 2s. (status: {safe?.attempt.status ?? "?"})
+            Grading is still running. This page updates automatically via {mode}. (status: {safe?.attempt.status ?? "?"})
           </p>
         ) : null}
 

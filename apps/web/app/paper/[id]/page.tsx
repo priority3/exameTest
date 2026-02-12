@@ -59,7 +59,7 @@ export default async function PaperPage(props: { params: Promise<{ id: string }>
           paper.status === "FAILED" ? (
             <p className="muted">Paper generation failed. Fix the error and generate a new paper.</p>
           ) : (
-            <PaperAutoRefresh />
+            <PaperAutoRefresh paperId={paper.id} initialStatus={paper.status} />
           )
         ) : (
           <>

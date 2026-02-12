@@ -1,8 +1,10 @@
 import crypto from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import { CreateSourceRequestSchema, DEMO_USER_ID, JOB_NAMES } from "@exametest/shared";
+import { CreateSourceRequestSchema, DEMO_USER_ID, EVENT_CHANNELS, JOB_NAMES } from "@exametest/shared";
 import { pool, ensureDemoUser } from "../db.js";
 import { queue } from "../queue.js";
+import { subscribeChannel } from "../realtime.js";
+import { initSse, sseComment, sseSend } from "../sse.js";
 
 const sha256 = (input: string): string => {
   return crypto.createHash("sha256").update(input, "utf8").digest("hex");
@@ -149,5 +151,51 @@ export const registerSourceRoutes = async (app: FastifyInstance) => {
     );
 
     return { sourceId: id, documents: docRes.rows };
+  });
+
+  // Server-Sent Events (SSE): push source status updates to the UI.
+  app.get("/sources/:id/events", async (req, reply) => {
+    const id = (req.params as { id: string }).id;
+
+    const sourceRes = await pool.query(`SELECT id, status, error FROM sources WHERE id = $1 AND user_id = $2`, [
+      id,
+      DEMO_USER_ID
+    ]);
+    const source = sourceRes.rows[0];
+    if (!source) {
+      return reply.status(404).send({ error: "Not found" });
+    }
+
+    initSse(reply);
+    reply.hijack();
+
+    sseSend(reply, { event: "snapshot", data: { type: "source", sourceId: id, status: source.status, error: source.error } });
+
+    const channel = EVENT_CHANNELS.source(id);
+    const unsubscribe = await subscribeChannel(channel, (message) => {
+      if (reply.raw.writableEnded) return;
+      let data: any = null;
+      try {
+        data = JSON.parse(message);
+      } catch {
+        data = { type: "source", sourceId: id, raw: message };
+      }
+      sseSend(reply, { event: "update", data });
+    });
+
+    const keepAlive = setInterval(() => {
+      if (reply.raw.writableEnded) return;
+      sseComment(reply, "keep-alive");
+    }, 15_000);
+
+    req.raw.on("close", async () => {
+      clearInterval(keepAlive);
+      await unsubscribe();
+      try {
+        reply.raw.end();
+      } catch {
+        // ignore
+      }
+    });
   });
 };

@@ -1,11 +1,12 @@
 import { Worker } from "bullmq";
 import { Redis } from "ioredis";
-import { JOB_NAMES, QUEUE_NAME } from "@exametest/shared";
+import { EVENT_CHANNELS, JOB_NAMES, QUEUE_NAME } from "@exametest/shared";
 import { env } from "./env.js";
 import { pool } from "./db.js";
 import { chunkAndEmbedSource } from "./jobs/chunkAndEmbedSource.js";
 import { generatePaper } from "./jobs/generatePaper.js";
 import { gradeAttempt } from "./jobs/gradeAttempt.js";
+import { publishEvent } from "./events.js";
 
 const connection = new Redis(env.REDIS_URL, {
   maxRetriesPerRequest: null
@@ -25,12 +26,19 @@ const worker = new Worker<JobPayload>(
           return { ok: true };
         } catch (err) {
           if (sourceId) {
+            const msg = err instanceof Error ? err.message : String(err);
             await pool.query(
               `UPDATE sources
                SET status = 'FAILED', error = $2, updated_at = NOW()
                WHERE id = $1`,
-              [sourceId, err instanceof Error ? err.message : String(err)]
+              [sourceId, msg]
             );
+            await publishEvent(EVENT_CHANNELS.source(sourceId), {
+              type: "source",
+              sourceId,
+              status: "FAILED",
+              error: msg
+            });
           }
           throw err;
         }
@@ -51,10 +59,17 @@ const worker = new Worker<JobPayload>(
           return { ok: true };
         } catch (err) {
           if (attemptId) {
+            const msg = err instanceof Error ? err.message : String(err);
             await pool.query(`UPDATE attempts SET error = $2 WHERE id = $1`, [
               attemptId,
-              err instanceof Error ? err.message : String(err)
+              msg
             ]);
+            await publishEvent(EVENT_CHANNELS.attempt(attemptId), {
+              type: "attempt",
+              attemptId,
+              status: "FAILED",
+              error: msg
+            });
           }
           throw err;
         }

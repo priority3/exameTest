@@ -1,7 +1,8 @@
 import type { Job } from "bullmq";
-import { LlmPaperSchema } from "@exametest/shared";
+import { EVENT_CHANNELS, LlmPaperSchema } from "@exametest/shared";
 import { pool } from "../db.js";
 import { chatJson, hasOpenAI } from "../llm/openai.js";
+import { publishEvent } from "../events.js";
 
 type PaperRow = {
   id: string;
@@ -41,6 +42,12 @@ export const generatePaper = async (job: Job<{ paperId: string }>) => {
        WHERE id = $1`,
       [paperId, "OPENAI_API_KEY is not set. Paper generation requires OpenAI."]
     );
+    await publishEvent(EVENT_CHANNELS.paper(paperId), {
+      type: "paper",
+      paperId,
+      status: "FAILED",
+      error: "OPENAI_API_KEY is not set. Paper generation requires OpenAI."
+    });
     return;
   }
 
@@ -72,6 +79,12 @@ export const generatePaper = async (job: Job<{ paperId: string }>) => {
        WHERE id = $1`,
       [paperId, "No chunks found for this source. Is the source READY?"]
     );
+    await publishEvent(EVENT_CHANNELS.paper(paperId), {
+      type: "paper",
+      paperId,
+      status: "FAILED",
+      error: "No chunks found for this source. Is the source READY?"
+    });
     return;
   }
 
@@ -128,12 +141,19 @@ export const generatePaper = async (job: Job<{ paperId: string }>) => {
       temperature: 0.6
     });
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     await pool.query(
       `UPDATE papers
        SET status = 'FAILED', error = $2
        WHERE id = $1`,
-      [paperId, err instanceof Error ? err.message : String(err)]
+      [paperId, msg]
     );
+    await publishEvent(EVENT_CHANNELS.paper(paperId), {
+      type: "paper",
+      paperId,
+      status: "FAILED",
+      error: msg
+    });
     throw err;
   }
 
@@ -183,6 +203,11 @@ export const generatePaper = async (job: Job<{ paperId: string }>) => {
 
     await client.query(`UPDATE papers SET status = 'READY', error = NULL WHERE id = $1`, [paperId]);
     await client.query("COMMIT");
+    await publishEvent(EVENT_CHANNELS.paper(paperId), {
+      type: "paper",
+      paperId,
+      status: "READY"
+    });
   } catch (err) {
     try {
       await client.query("ROLLBACK");
@@ -190,12 +215,19 @@ export const generatePaper = async (job: Job<{ paperId: string }>) => {
       // ignore
     }
 
+    const msg = err instanceof Error ? err.message : String(err);
     await pool.query(
       `UPDATE papers
        SET status = 'FAILED', error = $2
        WHERE id = $1`,
-      [paperId, err instanceof Error ? err.message : String(err)]
+      [paperId, msg]
     );
+    await publishEvent(EVENT_CHANNELS.paper(paperId), {
+      type: "paper",
+      paperId,
+      status: "FAILED",
+      error: msg
+    });
 
     throw err;
   } finally {
