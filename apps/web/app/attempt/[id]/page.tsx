@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { getClientApiBaseUrl } from "../../lib/config";
 
 type AttemptPayload = {
   attempt: {
@@ -37,7 +38,7 @@ export default function AttemptPage() {
   const id = Array.isArray(idParam) ? idParam[0] : idParam;
   const router = useRouter();
   const apiBase = useMemo(() => {
-    return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
+    return getClientApiBaseUrl();
   }, []);
 
   const [loading, setLoading] = useState(true);

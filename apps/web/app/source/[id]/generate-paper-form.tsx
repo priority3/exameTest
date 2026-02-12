@@ -2,11 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { getClientApiBaseUrl } from "../../lib/config";
 
 export default function GeneratePaperForm(props: { sourceId: string }) {
   const router = useRouter();
   const apiBase = useMemo(() => {
-    return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
+    return getClientApiBaseUrl();
   }, []);
 
   const [numQuestions, setNumQuestions] = useState(10);
@@ -87,4 +88,3 @@ export default function GeneratePaperForm(props: { sourceId: string }) {
     </div>
   );
 }
-

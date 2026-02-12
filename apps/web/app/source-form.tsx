@@ -1,12 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { getClientApiBaseUrl } from "./lib/config";
 
 type ApiResponse = unknown;
 
 export default function ImportSourceForm() {
   const apiBase = useMemo(() => {
-    return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
+    return getClientApiBaseUrl();
   }, []);
 
   const [title, setTitle] = useState("");

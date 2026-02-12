@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { API_BASE_URL } from "../../../lib/config";
+import { getClientApiBaseUrl } from "../../../lib/config";
 import TypewriterPre from "./typewriter-pre";
 
 type AttemptResult = {
@@ -40,7 +40,7 @@ export default function AttemptResultPage() {
   const id = Array.isArray(idParam) ? idParam[0] : idParam;
 
   const apiBase = useMemo(() => {
-    return process.env.NEXT_PUBLIC_API_BASE_URL ?? API_BASE_URL;
+    return getClientApiBaseUrl();
   }, []);
 
   const [loading, setLoading] = useState(true);

@@ -134,73 +134,78 @@ pnpm db:migrate
 
 ## Deployment
 
-This MVP currently runs as three Node processes (web/api/worker) + Postgres + Redis.
-There are no production Dockerfiles yet (only `docker-compose.yml` for infra).
+This repo supports an "all Docker" single-server deployment:
 
-### Option A: VM / process manager (recommended for now)
+- `docker-compose.prod.yml`: `caddy` (TLS) + `web` + `api` + `worker` + `postgres` + `redis`
+- Reverse proxy shape: `https://DOMAIN/` (web) and `https://DOMAIN/api/*` (api)
+- Browser requests use same-origin `/api`, so you don't need CORS in production
+- DB migrations run via the one-off `migrate` service
 
-Prereqs on the server:
+### One-time server setup
 
-- Node.js >= 20 + pnpm
-- Postgres 16 + pgvector
-- Redis 7
-- A `.env` file with production values
+Prereqs:
 
-Steps:
+- Docker + docker compose plugin
+- Ports `80` and `443` open
+- DNS `A` record: `DOMAIN` -> your server public IP
 
-1) Install deps:
-
-```bash
-pnpm install --frozen-lockfile
-```
-
-2) Run migrations (run once per deploy):
+1) Clone repo on the server (example):
 
 ```bash
-pnpm db:migrate
+mkdir -p /opt/exametest
+cd /opt/exametest
+git clone git@github.com:priority3/exameTest.git .
 ```
 
-3) Build web:
+2) Create `.env` for `docker-compose.prod.yml`:
 
 ```bash
-pnpm -C apps/web build
+cp deploy/.env.prod.example .env
 ```
 
-4) Start processes (use systemd/pm2/supervisord in real deploys):
+Edit `.env` and set:
 
-Web:
+- `DOMAIN`
+- `POSTGRES_PASSWORD`
+- `OPENAI_API_KEY` / `OPENAI_BASE_URL` (optional until you enable generation/grading)
+
+3) Login to GHCR on the server (required if the repo/packages are private):
 
 ```bash
-pnpm -C apps/web start
+echo "<YOUR_GHCR_TOKEN>" | docker login ghcr.io -u "<YOUR_GITHUB_USERNAME>" --password-stdin
 ```
 
-API (currently runs TypeScript via `tsx` runtime):
+### Manual deploy (server)
+
+From the repo root:
 
 ```bash
-pnpm -C apps/api exec tsx src/server.ts
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml run --rm migrate
+docker compose -f docker-compose.prod.yml up -d --remove-orphans
 ```
 
-Worker (currently runs TypeScript via `tsx` runtime):
+Or use the helper:
 
 ```bash
-pnpm -C apps/worker exec tsx src/worker.ts
+bash deploy/deploy.sh
 ```
 
-Notes:
+### CI/CD (GitHub Actions -> SSH)
 
-- `apps/api` and `apps/worker` load the repo-root `.env` explicitly.
-- Make sure `NEXT_PUBLIC_API_BASE_URL` points to the public API URL (not `localhost`) for browsers.
-- CORS is currently configured for local dev only. For real deployments, update the allowlist in `apps/api/src/server.ts`.
-- For a stricter production setup, add build+start scripts for api/worker (compile to JS) and run via `node`.
+Workflow: `.github/workflows/deploy.yml`
 
-### Option B: Containers (planned)
+Behavior:
 
-Planned improvements:
+- On every push to `main`:
+  - Build & push images to GHCR (web/api/worker)
+  - SSH into the server and run `bash deploy/deploy.sh`
 
-- Add Dockerfiles for `apps/web`, `apps/api`, `apps/worker`
-- Add a production compose file that runs:
-  - `web` + `api` + `worker`
-  - `postgres` (or use managed DB)
-  - `redis` (or use managed Redis)
+Required GitHub secrets:
 
-Track this in: `docs/roadmap.md`
+- `DEPLOY_HOST`: server IP / hostname
+- `DEPLOY_USER`: ssh user (e.g. `root` or `ubuntu`)
+- `DEPLOY_SSH_KEY`: private key (deploy key)
+- `DEPLOY_PATH`: path of the repo checkout on the server (e.g. `/opt/exametest`)
+- `GHCR_USERNAME`: github username that owns the token
+- `GHCR_TOKEN`: PAT with `read:packages` (for `docker pull` on the server)

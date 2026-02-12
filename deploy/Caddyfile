@@ -1,0 +1,21 @@
+{
+  # Caddy stores ACME state in /data (mounted in docker-compose.prod.yml)
+  # and config in /config.
+}
+
+{$DOMAIN} {
+  encode gzip zstd
+
+  # API under same origin to avoid CORS. We strip the /api prefix via handle_path.
+  handle_path /api/* {
+    reverse_proxy api:4000 {
+      # Disable buffering for SSE.
+      flush_interval -1
+    }
+  }
+
+  handle {
+    reverse_proxy web:3000
+  }
+}
+
