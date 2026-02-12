@@ -1,15 +1,15 @@
 # exameTest
 
-AI 式测试网站（MVP）：把学习材料导入 -> AI 出卷 -> 在线答题 -> AI 阅卷 -> 给出参考答案与讲解（带证据引用）。
+AI-powered exam platform (MVP): Import study materials → AI generates exam papers → Take exams online → AI grades answers → Get reference answers with detailed explanations and cited evidence.
 
 ## Repo layout
 
 - `apps/web`: Next.js UI
 - `apps/api`: Fastify HTTP API
-- `apps/worker`: BullMQ worker（后台任务：chunk/embed、生成试卷、阅卷）
+- `apps/worker`: BullMQ worker (background jobs: chunk/embed, exam generation, grading)
 - `packages/shared`: Zod schemas + shared types/constants
 - `packages/db`: Postgres client + migrations runner
-- `db/migrations`: SQL migrations（DDL source of truth）
+- `db/migrations`: SQL migrations (DDL source of truth)
 
 ## Docs
 
@@ -22,7 +22,7 @@ AI 式测试网站（MVP）：把学习材料导入 -> AI 出卷 -> 在线答题
 ### Prereqs
 
 - Node.js >= 20
-- pnpm（repo root `package.json` 里有 `packageManager`）
+- pnpm (the root `package.json` specifies `packageManager`)
 - Postgres 16 + pgvector extension
 - Redis 7
 
@@ -38,12 +38,12 @@ Required (local dev):
 - `REDIS_URL`
 - `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:4000`)
 
-Optional (needed for 生成试卷/问答题阅卷):
+Optional (needed for exam generation / essay grading):
 
 - `OPENAI_API_KEY`
 - `OPENAI_BASE_URL` (OpenAI-compatible provider base URL)
 - `OPENAI_CHAT_MODEL`
-- `OPENAI_EMBEDDING_MODEL` (embeddings currently best-effort; provider may not implement it)
+- `OPENAI_EMBEDDING_MODEL` (embeddings are best-effort; the provider may not implement it)
 
 Notes:
 
