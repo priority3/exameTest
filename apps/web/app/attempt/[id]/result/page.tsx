@@ -45,14 +45,13 @@ export default function AttemptResultPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AttemptResult | null>(null);
-  const [pollCount, setPollCount] = useState(0);
-  const [mode, setMode] = useState<"sse" | "poll">("sse");
+  const [connected, setConnected] = useState(false);
+  const [sseError, setSseError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
 
     let cancelled = false;
-    let pollTimer: any = null;
     let es: EventSource | null = null;
 
     const fetchOnce = async () => {
@@ -69,8 +68,6 @@ export default function AttemptResultPage() {
         const status = String(json?.attempt?.status ?? "");
         const done = status === "GRADED" || Boolean(json?.attempt?.error);
         if (done) {
-          if (pollTimer) clearInterval(pollTimer);
-          pollTimer = null;
           try {
             es?.close();
           } catch {
@@ -86,77 +83,31 @@ export default function AttemptResultPage() {
       }
     };
 
-    const startPolling = () => {
-      if (pollTimer) return;
-      setMode("poll");
-      pollTimer = setInterval(async () => {
-        await fetchOnce();
-        if (cancelled) return;
-        setPollCount((c) => c + 1);
-      }, 2000);
-    };
-
-    const parseEvent = (data: any): any => {
-      if (!data) return null;
-      if (typeof data === "string") {
-        try {
-          return JSON.parse(data);
-        } catch {
-          return { raw: data };
-        }
-      }
-      return data;
-    };
-
-    const handleAttemptEvent = async (payload: any) => {
-      const status = String(payload?.status ?? "");
-      const hasErr = Boolean(payload?.error);
-
-      // Re-fetch result whenever we hear something relevant.
-      if (status || hasErr) {
-        await fetchOnce();
-      }
-
-      if (status === "GRADED" || hasErr) {
-        if (pollTimer) clearInterval(pollTimer);
-        pollTimer = null;
-        try {
-          es?.close();
-        } catch {
-          // ignore
-        }
-        es = null;
-      }
-    };
-
     // Fetch once immediately for first paint.
     fetchOnce();
 
-    // Prefer SSE; fallback to polling if SSE fails.
+    // SSE only (no polling fallback).
     try {
       es = new EventSource(`${apiBase}/attempts/${id}/events`);
       es.onopen = () => {
-        setMode("sse");
+        setConnected(true);
+        setSseError(null);
       };
       es.onerror = () => {
-        try {
-          es?.close();
-        } catch {
-          // ignore
-        }
-        es = null;
-        startPolling();
+        // EventSource auto-reconnects; keep it simple and just reflect the state.
+        setConnected(false);
       };
-      es.addEventListener("snapshot", (ev: MessageEvent) => void handleAttemptEvent(parseEvent(ev.data)));
-      es.addEventListener("update", (ev: MessageEvent) => void handleAttemptEvent(parseEvent(ev.data)));
-      es.onmessage = (ev) => void handleAttemptEvent(parseEvent((ev as any)?.data));
-    } catch {
-      startPolling();
+      const onEvent = () => void fetchOnce();
+      es.addEventListener("snapshot", onEvent as any);
+      es.addEventListener("update", onEvent as any);
+      es.onmessage = onEvent as any;
+    } catch (e) {
+      setConnected(false);
+      setSseError(e instanceof Error ? e.message : String(e));
     }
 
     return () => {
       cancelled = true;
-      if (pollTimer) clearInterval(pollTimer);
       try {
         es?.close();
       } catch {
@@ -218,6 +169,8 @@ export default function AttemptResultPage() {
 
       {error ? <p style={{ color: "#b91c1c" }}>Network error: {error}</p> : null}
 
+      {sseError ? <p style={{ color: "#b91c1c" }}>Realtime error: {sseError}</p> : null}
+
       {safe?.attempt.error ? <p style={{ color: "#b91c1c" }}>Grading error: {safe.attempt.error}</p> : null}
 
       <div style={{ height: 18 }} />
@@ -229,14 +182,8 @@ export default function AttemptResultPage() {
           <p className="muted">This attempt failed to grade. Fix the issue and resubmit (or re-run the job).</p>
         ) : safe?.attempt.status !== "GRADED" ? (
           <p className="muted">
-            Grading is still running. This page updates automatically via {mode}. (status: {safe?.attempt.status ?? "?"})
-          </p>
-        ) : null}
-
-        {safe?.attempt.status !== "GRADED" && pollCount >= 8 ? (
-          <p className="muted">
-            Still waiting… If it never completes, make sure the worker is running (use `pnpm dev` at repo root) and
-            Redis is up (`pnpm infra:up`).
+            Grading is still running. This page updates automatically (SSE: {connected ? "connected" : "disconnected"}).
+            (status: {safe?.attempt.status ?? "?"})
           </p>
         ) : null}
 
