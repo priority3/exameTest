@@ -83,7 +83,20 @@ export const gradeAttempt = async (job: Job<{ attemptId: string }>) => {
   );
   const answerByQuestion = new Map(ansRes.rows.map((a) => [a.questionId, a]));
 
-  const grades: Array<{
+  const totalQuestions = qRes.rows.length;
+  let doneQuestions = 0;
+
+  await pool.query(`DELETE FROM grades WHERE attempt_id = $1`, [attemptId]);
+
+  await publishEvent(EVENT_CHANNELS.attempt(attemptId), {
+    type: "attempt",
+    attemptId,
+    status: attempt.status,
+    stage: "GRADING_STARTED",
+    progress: { done: 0, total: totalQuestions }
+  });
+
+  const persistGrade = async (g: {
     questionId: string;
     score: number;
     maxScore: number;
@@ -93,7 +106,41 @@ export const gradeAttempt = async (job: Job<{ attemptId: string }>) => {
     confidence?: number | null;
     isWrong: boolean;
     tags: string[];
-  }> = [];
+  }) => {
+    await pool.query(
+      `INSERT INTO grades (attempt_id, question_id, score, max_score, verdict, feedback_md, citations, confidence)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (attempt_id, question_id)
+       DO UPDATE SET score = EXCLUDED.score, max_score = EXCLUDED.max_score, verdict = EXCLUDED.verdict, feedback_md = EXCLUDED.feedback_md, citations = EXCLUDED.citations, confidence = EXCLUDED.confidence`,
+      [
+        attemptId,
+        g.questionId,
+        g.score,
+        g.maxScore,
+        JSON.stringify(g.verdict),
+        g.feedbackMd,
+        JSON.stringify(g.citations),
+        g.confidence ?? null
+      ]
+    );
+
+    if (g.isWrong) {
+      // NOTE: MVP uses a single demo user id; if you add auth, pass attempt.user_id.
+      await upsertWrongItem(pool, { userId: DEMO_USER_ID, questionId: g.questionId, tags: g.tags });
+    }
+
+    doneQuestions += 1;
+    await publishEvent(EVENT_CHANNELS.attempt(attemptId), {
+      type: "attempt",
+      attemptId,
+      status: attempt.status,
+      stage: "QUESTION_GRADED",
+      questionId: g.questionId,
+      score: g.score,
+      maxScore: g.maxScore,
+      progress: { done: doneQuestions, total: totalQuestions }
+    });
+  };
 
   for (const q of qRes.rows) {
     const answer = answerByQuestion.get(q.id);
@@ -116,7 +163,7 @@ export const gradeAttempt = async (job: Job<{ attemptId: string }>) => {
         ? `正确。\n\n${rationale ? `解析：${rationale}` : ""}`.trim()
         : `错误。正确答案：${correct || "(missing)"}。\n\n${rationale ? `解析：${rationale}` : ""}`.trim();
 
-      grades.push({
+      await persistGrade({
         questionId: q.id,
         score: isCorrect ? 1 : 0,
         maxScore: 1,
@@ -135,7 +182,7 @@ export const gradeAttempt = async (job: Job<{ attemptId: string }>) => {
     const maxScore = sumRubric(rubric);
 
     if (!hasOpenAI()) {
-      grades.push({
+      await persistGrade({
         questionId: q.id,
         score: 0,
         maxScore,
@@ -260,7 +307,7 @@ export const gradeAttempt = async (job: Job<{ attemptId: string }>) => {
       .map((ref) => refToChunkId.get(ref) ?? null)
       .filter((x): x is string => Boolean(x));
 
-    grades.push({
+    await persistGrade({
       questionId: q.id,
       score: safeScore,
       maxScore,
@@ -280,57 +327,17 @@ export const gradeAttempt = async (job: Job<{ attemptId: string }>) => {
     });
   }
 
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-
-    await client.query(`DELETE FROM grades WHERE attempt_id = $1`, [attemptId]);
-
-    for (const g of grades) {
-      await client.query(
-        `INSERT INTO grades (attempt_id, question_id, score, max_score, verdict, feedback_md, citations, confidence)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (attempt_id, question_id)
-         DO UPDATE SET score = EXCLUDED.score, max_score = EXCLUDED.max_score, verdict = EXCLUDED.verdict, feedback_md = EXCLUDED.feedback_md, citations = EXCLUDED.citations, confidence = EXCLUDED.confidence`,
-        [
-          attemptId,
-          g.questionId,
-          g.score,
-          g.maxScore,
-          JSON.stringify(g.verdict),
-          g.feedbackMd,
-          JSON.stringify(g.citations),
-          g.confidence ?? null
-        ]
-      );
-
-      if (g.isWrong) {
-        // NOTE: MVP uses a single demo user id; if you add auth, pass attempt.user_id.
-        await upsertWrongItem(client, { userId: DEMO_USER_ID, questionId: g.questionId, tags: g.tags });
-      }
-    }
-
-    await client.query(
-      `UPDATE attempts
-       SET status = 'GRADED', graded_at = NOW()
-       WHERE id = $1`,
-      [attemptId]
-    );
-
-    await client.query("COMMIT");
-    await publishEvent(EVENT_CHANNELS.attempt(attemptId), {
-      type: "attempt",
-      attemptId,
-      status: "GRADED"
-    });
-  } catch (err) {
-    try {
-      await client.query("ROLLBACK");
-    } catch {
-      // ignore
-    }
-    throw err;
-  } finally {
-    client.release();
-  }
+  await pool.query(
+    `UPDATE attempts
+     SET status = 'GRADED', graded_at = NOW()
+     WHERE id = $1`,
+    [attemptId]
+  );
+  await publishEvent(EVENT_CHANNELS.attempt(attemptId), {
+    type: "attempt",
+    attemptId,
+    status: "GRADED",
+    stage: "GRADING_FINISHED",
+    progress: { done: doneQuestions, total: totalQuestions }
+  });
 };

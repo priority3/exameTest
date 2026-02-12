@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { API_BASE_URL } from "../../../lib/config";
+import TypewriterPre from "./typewriter-pre";
 
 type AttemptResult = {
   attempt: { id: string; paperId: string; status: string; error?: string | null; gradedAt: string | null };
@@ -151,6 +152,9 @@ export default function AttemptResultPage() {
   const safe = result;
   const gradeByQuestionId = new Map((safe?.grades ?? []).map((g) => [g.questionId, g]));
   const answerByQuestionId = new Map((safe?.answers ?? []).map((a) => [a.questionId, a]));
+  const totalQuestions = safe?.questions?.length ?? 0;
+  const gradedCount = safe?.grades?.length ?? 0;
+  const progressPct = totalQuestions > 0 ? Math.round((gradedCount / totalQuestions) * 100) : 0;
 
   return (
     <>
@@ -185,6 +189,36 @@ export default function AttemptResultPage() {
             Grading is still running. This page updates automatically (SSE: {connected ? "connected" : "disconnected"}).
             (status: {safe?.attempt.status ?? "?"})
           </p>
+        ) : null}
+
+        {safe?.attempt.status !== "GRADED" ? (
+          <div style={{ marginTop: 10, marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
+              <span className="pill">
+                progress {gradedCount}/{totalQuestions}
+              </span>
+              <span className="muted">{progressPct}%</span>
+            </div>
+            <div
+              style={{
+                height: 10,
+                borderRadius: 999,
+                border: "1px solid var(--border)",
+                background: "rgba(255,255,255,0.55)",
+                overflow: "hidden",
+                marginTop: 10
+              }}
+            >
+              <div
+                style={{
+                  width: `${progressPct}%`,
+                  height: "100%",
+                  background: "linear-gradient(90deg, var(--accent), #22c55e)",
+                  transition: "width 240ms ease"
+                }}
+              />
+            </div>
+          </div>
         ) : null}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -243,7 +277,7 @@ export default function AttemptResultPage() {
                 {g ? (
                   <>
                     <label>Feedback</label>
-                    <pre style={{ whiteSpace: "pre-wrap" }}>{g.feedbackMd}</pre>
+                    <TypewriterPre text={g.feedbackMd} />
 
                     {Array.isArray(verdict?.actionableSuggestions) && verdict.actionableSuggestions.length > 0 ? (
                       <>
@@ -295,7 +329,10 @@ export default function AttemptResultPage() {
                     </p>
                   </>
                 ) : (
-                  <p className="muted">No grade yet.</p>
+                  <div className="muted" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span className="spinner" aria-hidden />
+                    <span>Grading...</span>
+                  </div>
                 )}
               </div>
             );

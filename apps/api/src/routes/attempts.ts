@@ -151,6 +151,11 @@ export const registerAttemptRoutes = async (app: FastifyInstance) => {
   app.get("/attempts/:id/result", async (req, reply) => {
     const id = (req.params as { id: string }).id;
 
+    const sumRubric = (rubric: any): number => {
+      if (!Array.isArray(rubric)) return 0;
+      return rubric.reduce((acc, p) => acc + (typeof p?.points === "number" ? p.points : 0), 0);
+    };
+
     const attemptRes = await pool.query(
       `SELECT id, paper_id AS "paperId", status, error, started_at AS "startedAt", submitted_at AS "submittedAt", graded_at AS "gradedAt"
        FROM attempts
@@ -190,16 +195,14 @@ export const registerAttemptRoutes = async (app: FastifyInstance) => {
       [id]
     );
 
-    const total = gradeRes.rows.reduce(
-      (acc, g) => {
-        acc.score += Number(g.score);
-        acc.max += Number(g.maxScore);
-        return acc;
-      },
-      { score: 0, max: 0 }
-    );
+    const totalScore = gradeRes.rows.reduce((acc, g) => acc + Number(g.score), 0);
+    const totalMax = qRes.rows.reduce((acc, q: any) => {
+      const type = String(q?.type ?? "");
+      if (type === "MCQ") return acc + 1;
+      return acc + sumRubric(q?.rubric);
+    }, 0);
 
-    return { attempt, totals: total, questions: qRes.rows, answers: ansRes.rows, grades: gradeRes.rows };
+    return { attempt, totals: { score: totalScore, max: totalMax }, questions: qRes.rows, answers: ansRes.rows, grades: gradeRes.rows };
   });
 
   app.get("/wrong-items", async () => {
