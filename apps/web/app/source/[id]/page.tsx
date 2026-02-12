@@ -1,5 +1,6 @@
 import { API_BASE_URL } from "../../lib/config";
 import GeneratePaperForm from "./generate-paper-form";
+import SourceAutoRefresh from "./auto-refresh";
 
 type SourceDetail = {
   id: string;
@@ -87,9 +88,11 @@ export default async function SourcePage(props: { params: Promise<{ id: string }
       <div className="card">
         <h2 style={{ marginTop: 0 }}>Generate Paper</h2>
         {source.status !== "READY" ? (
-          <p className="muted">
-            Source is still processing. Refresh this page in a few seconds. (Status: {source.status})
-          </p>
+          source.status === "FAILED" ? (
+            <p className="muted">Source processing failed. Fix the error and re-import the source.</p>
+          ) : (
+            <SourceAutoRefresh />
+          )
         ) : (
           <GeneratePaperForm sourceId={source.id} />
         )}

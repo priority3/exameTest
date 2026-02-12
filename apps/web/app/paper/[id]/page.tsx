@@ -1,5 +1,6 @@
 import { API_BASE_URL } from "../../lib/config";
 import StartAttemptButton from "./start-attempt";
+import PaperAutoRefresh from "./auto-refresh";
 
 type PaperDetail = {
   id: string;
@@ -55,7 +56,11 @@ export default async function PaperPage(props: { params: Promise<{ id: string }>
       <div className="card">
         <h2 style={{ marginTop: 0 }}>Questions</h2>
         {paper.status !== "READY" ? (
-          <p className="muted">Paper is {paper.status}. Refresh to see questions when it becomes READY.</p>
+          paper.status === "FAILED" ? (
+            <p className="muted">Paper generation failed. Fix the error and generate a new paper.</p>
+          ) : (
+            <PaperAutoRefresh />
+          )
         ) : (
           <>
             <StartAttemptButton paperId={paper.id} />
