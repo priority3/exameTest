@@ -172,16 +172,26 @@ export const registerSourceRoutes = async (app: FastifyInstance) => {
     sseSend(reply, { event: "snapshot", data: { type: "source", sourceId: id, status: source.status, error: source.error } });
 
     const channel = EVENT_CHANNELS.source(id);
-    const unsubscribe = await subscribeChannel(channel, (message) => {
-      if (reply.raw.writableEnded) return;
-      let data: any = null;
-      try {
-        data = JSON.parse(message);
-      } catch {
-        data = { type: "source", sourceId: id, raw: message };
-      }
-      sseSend(reply, { event: "update", data });
-    });
+    let unsubscribe: (() => Promise<void>) | null = null;
+    try {
+      unsubscribe = await subscribeChannel(channel, (message) => {
+        if (reply.raw.writableEnded) return;
+        let data: any = null;
+        try {
+          data = JSON.parse(message);
+        } catch {
+          data = { type: "source", sourceId: id, raw: message };
+        }
+        sseSend(reply, { event: "update", data });
+      });
+    } catch (err) {
+      sseSend(reply, {
+        event: "error",
+        data: { type: "source", sourceId: id, error: err instanceof Error ? err.message : String(err) }
+      });
+      reply.raw.end();
+      return;
+    }
 
     const keepAlive = setInterval(() => {
       if (reply.raw.writableEnded) return;
@@ -190,7 +200,7 @@ export const registerSourceRoutes = async (app: FastifyInstance) => {
 
     req.raw.on("close", async () => {
       clearInterval(keepAlive);
-      await unsubscribe();
+      if (unsubscribe) await unsubscribe();
       try {
         reply.raw.end();
       } catch {

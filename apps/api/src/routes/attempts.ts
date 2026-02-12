@@ -236,16 +236,26 @@ export const registerAttemptRoutes = async (app: FastifyInstance) => {
     });
 
     const channel = EVENT_CHANNELS.attempt(id);
-    const unsubscribe = await subscribeChannel(channel, (message) => {
-      if (reply.raw.writableEnded) return;
-      let data: any = null;
-      try {
-        data = JSON.parse(message);
-      } catch {
-        data = { type: "attempt", attemptId: id, raw: message };
-      }
-      sseSend(reply, { event: "update", data });
-    });
+    let unsubscribe: (() => Promise<void>) | null = null;
+    try {
+      unsubscribe = await subscribeChannel(channel, (message) => {
+        if (reply.raw.writableEnded) return;
+        let data: any = null;
+        try {
+          data = JSON.parse(message);
+        } catch {
+          data = { type: "attempt", attemptId: id, raw: message };
+        }
+        sseSend(reply, { event: "update", data });
+      });
+    } catch (err) {
+      sseSend(reply, {
+        event: "error",
+        data: { type: "attempt", attemptId: id, error: err instanceof Error ? err.message : String(err) }
+      });
+      reply.raw.end();
+      return;
+    }
 
     const keepAlive = setInterval(() => {
       if (reply.raw.writableEnded) return;
@@ -254,7 +264,7 @@ export const registerAttemptRoutes = async (app: FastifyInstance) => {
 
     req.raw.on("close", async () => {
       clearInterval(keepAlive);
-      await unsubscribe();
+      if (unsubscribe) await unsubscribe();
       try {
         reply.raw.end();
       } catch {
