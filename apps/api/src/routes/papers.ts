@@ -108,7 +108,7 @@ export const registerPaperRoutes = async (app: FastifyInstance) => {
       return reply.status(404).send({ error: "Not found" });
     }
 
-    initSse(reply);
+    initSse(req, reply);
     reply.hijack();
 
     sseSend(reply, { event: "snapshot", data: { type: "paper", paperId: id, status: paper.status, error: paper.error } });

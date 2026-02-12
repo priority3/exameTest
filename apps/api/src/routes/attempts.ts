@@ -227,7 +227,7 @@ export const registerAttemptRoutes = async (app: FastifyInstance) => {
       return reply.status(404).send({ error: "Not found" });
     }
 
-    initSse(reply);
+    initSse(req, reply);
     reply.hijack();
 
     sseSend(reply, {

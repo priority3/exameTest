@@ -166,7 +166,7 @@ export const registerSourceRoutes = async (app: FastifyInstance) => {
       return reply.status(404).send({ error: "Not found" });
     }
 
-    initSse(reply);
+    initSse(req, reply);
     reply.hijack();
 
     sseSend(reply, { event: "snapshot", data: { type: "source", sourceId: id, status: source.status, error: source.error } });

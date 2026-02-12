@@ -1,6 +1,21 @@
-import type { FastifyReply } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 
-export const initSse = (reply: FastifyReply) => {
+const isAllowedOrigin = (origin: string): boolean => {
+  return /^http:\/\/localhost:\d+$/.test(origin) || /^http:\/\/127\.0\.0\.1:\d+$/.test(origin);
+};
+
+export const initSse = (req: FastifyRequest, reply: FastifyReply) => {
+  // CORS: Fastify's CORS plugin usually sets these headers in onSend hooks,
+  // but `reply.hijack()` bypasses that pipeline. For SSE we set the headers
+  // explicitly so EventSource can connect cross-origin (localhost:3000 -> :4000).
+  const originHeader = req.headers?.origin;
+  const origin = typeof originHeader === "string" ? originHeader : "";
+  if (origin && isAllowedOrigin(origin)) {
+    reply.raw.setHeader("Access-Control-Allow-Origin", origin);
+    reply.raw.setHeader("Access-Control-Allow-Credentials", "true");
+    reply.raw.setHeader("Vary", "Origin");
+  }
+
   reply.raw.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   reply.raw.setHeader("Cache-Control", "no-cache, no-transform");
   reply.raw.setHeader("Connection", "keep-alive");
@@ -24,4 +39,3 @@ export const sseSend = (reply: FastifyReply, params: { event?: string; data: unk
 export const sseComment = (reply: FastifyReply, comment: string) => {
   reply.raw.write(`: ${comment}\n\n`);
 };
-
