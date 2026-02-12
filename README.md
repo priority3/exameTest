@@ -15,6 +15,7 @@ AI-powered exam platform (MVP): Import study materials → AI generates exam pap
 
 - MVP tech spec: `docs/mvp.md`
 - Post-MVP roadmap: `docs/roadmap.md`
+- Deployment guide: `docs/deploy.md`
 - Transcript: `docs/conversation-2026-02-11.md`
 
 ## Development
