@@ -12,6 +12,35 @@ import { subscribeChannel } from "../realtime.js";
 import { initSse, sseComment, sseSend } from "../sse.js";
 
 export const registerAttemptRoutes = async (app: FastifyInstance) => {
+  app.get("/attempts", async (req) => {
+    const limitRaw = (req.query as any)?.limit;
+    const limitNum = typeof limitRaw === "string" ? Number(limitRaw) : Number(limitRaw ?? 50);
+    const limit = Number.isFinite(limitNum) ? Math.max(1, Math.min(200, Math.floor(limitNum))) : 50;
+
+    const res = await pool.query(
+      `SELECT a.id,
+              a.paper_id AS "paperId",
+              p.title AS "paperTitle",
+              a.status,
+              a.error,
+              a.started_at AS "startedAt",
+              a.submitted_at AS "submittedAt",
+              a.graded_at AS "gradedAt",
+              (SELECT COUNT(*) FROM questions q WHERE q.paper_id = a.paper_id)::int AS "totalQuestions",
+              (SELECT COUNT(*) FROM grades g WHERE g.attempt_id = a.id)::int AS "gradedQuestions",
+              (SELECT COALESCE(SUM(g.score), 0) FROM grades g WHERE g.attempt_id = a.id)::float AS "score",
+              (SELECT COALESCE(SUM(g.max_score), 0) FROM grades g WHERE g.attempt_id = a.id)::float AS "maxScore"
+       FROM attempts a
+       JOIN papers p ON p.id = a.paper_id
+       WHERE a.user_id = $1
+       ORDER BY a.started_at DESC
+       LIMIT $2`,
+      [DEMO_USER_ID, limit]
+    );
+
+    return { items: res.rows };
+  });
+
   app.post("/attempts", async (req, reply) => {
     const parsed = CreateAttemptRequestSchema.safeParse(req.body);
     if (!parsed.success) {

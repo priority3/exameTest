@@ -10,6 +10,29 @@ const defaultPaperTitle = (sourceTitle: string): string => {
 };
 
 export const registerPaperRoutes = async (app: FastifyInstance) => {
+  app.get("/papers", async (req) => {
+    const limitRaw = (req.query as any)?.limit;
+    const limitNum = typeof limitRaw === "string" ? Number(limitRaw) : Number(limitRaw ?? 50);
+    const limit = Number.isFinite(limitNum) ? Math.max(1, Math.min(200, Math.floor(limitNum))) : 50;
+
+    const res = await pool.query(
+      `SELECT p.id,
+              p.source_id AS "sourceId",
+              p.title,
+              p.status,
+              p.error,
+              p.created_at AS "createdAt",
+              (SELECT COUNT(*) FROM questions q WHERE q.paper_id = p.id)::int AS "questionCount"
+       FROM papers p
+       WHERE p.user_id = $1
+       ORDER BY p.created_at DESC
+       LIMIT $2`,
+      [DEMO_USER_ID, limit]
+    );
+
+    return { items: res.rows };
+  });
+
   app.post("/papers", async (req, reply) => {
     const parsed = CreatePaperRequestSchema.safeParse(req.body);
     if (!parsed.success) {
