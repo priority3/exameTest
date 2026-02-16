@@ -142,7 +142,7 @@ export const registerSourceRoutes = async (app: FastifyInstance) => {
 
     const docRes = await pool.query(
       `SELECT id, doc_type AS "docType", uri, meta,
-              LEFT(content_text, 800) AS preview,
+              content_text AS "rawText",
               OCTET_LENGTH(content_text) AS bytes
        FROM documents
        WHERE source_id = $1
@@ -150,7 +150,30 @@ export const registerSourceRoutes = async (app: FastifyInstance) => {
       [id]
     );
 
-    return { sourceId: id, documents: docRes.rows };
+    // Reason: Postgres LEFT/substring on text can fail with certain
+    // multi-byte data due to glibc locale issues inside the Docker
+    // container, so we truncate in JS instead.
+    const documents = docRes.rows.map((row: any) => {
+      const { rawText, ...rest } = row;
+      return { ...rest, preview: rawText ? rawText.slice(0, 800) : "" };
+    });
+
+    return { sourceId: id, documents };
+  });
+
+  app.delete("/sources/:id", async (req, reply) => {
+    const id = (req.params as { id: string }).id;
+
+    const res = await pool.query(
+      `DELETE FROM sources WHERE id = $1 AND user_id = $2 RETURNING id`,
+      [id, DEMO_USER_ID]
+    );
+
+    if (res.rowCount === 0) {
+      return reply.status(404).send({ error: "Not found" });
+    }
+
+    return reply.status(204).send();
   });
 
   // Server-Sent Events (SSE): push source status updates to the UI.

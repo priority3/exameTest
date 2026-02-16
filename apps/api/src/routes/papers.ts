@@ -98,6 +98,21 @@ export const registerPaperRoutes = async (app: FastifyInstance) => {
     return { ...paper, questions: qRes.rows };
   });
 
+  app.delete("/papers/:id", async (req, reply) => {
+    const id = (req.params as { id: string }).id;
+
+    const res = await pool.query(
+      `DELETE FROM papers WHERE id = $1 AND user_id = $2 RETURNING id`,
+      [id, DEMO_USER_ID]
+    );
+
+    if (res.rowCount === 0) {
+      return reply.status(404).send({ error: "Not found" });
+    }
+
+    return reply.status(204).send();
+  });
+
   // Debug endpoint for local dev.
   app.get("/papers/:id/answer-key", async (req, reply) => {
     const id = (req.params as { id: string }).id;

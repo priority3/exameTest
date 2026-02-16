@@ -1,6 +1,7 @@
 import { API_BASE_URL } from "../../lib/config";
 import GeneratePaperForm from "./generate-paper-form";
 import SourceAutoRefresh from "./auto-refresh";
+import DeleteSourceButton from "./delete-source-button";
 
 type SourceDetail = {
   id: string;
@@ -45,7 +46,9 @@ export default async function SourcePage(props: { params: Promise<{ id: string }
   }
 
   const source = (await sourceRes.json()) as SourceDetail;
-  const preview = (await previewRes.json()) as SourcePreview;
+  const preview = previewRes.ok
+    ? ((await previewRes.json()) as SourcePreview)
+    : { sourceId: id, documents: [] };
 
   return (
     <>
@@ -65,6 +68,8 @@ export default async function SourcePage(props: { params: Promise<{ id: string }
             <p style={{ color: "#b91c1c", marginBottom: 0 }}>Error: {source.error}</p>
           ) : null}
         </div>
+
+        <DeleteSourceButton sourceId={source.id} />
       </div>
 
       <div style={{ height: 18 }} />
