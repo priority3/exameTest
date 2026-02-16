@@ -4,6 +4,7 @@ export const DEMO_USER_ID = "00000000-0000-0000-0000-000000000001";
 
 export const JOB_NAMES = {
   chunkAndEmbedSource: "chunk_and_embed_source",
+  fetchGithubSource: "fetch_github_source",
   generatePaper: "generate_paper",
   gradeAttempt: "grade_attempt"
 } as const;

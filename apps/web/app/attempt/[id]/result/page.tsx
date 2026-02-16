@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { getClientApiBaseUrl } from "../../../lib/config";
 import TypewriterPre from "./typewriter-pre";
+import DeleteAttemptButton from "../delete-attempt-button";
 
 type AttemptResult = {
   attempt: { id: string; paperId: string; status: string; error?: string | null; gradedAt: string | null };
@@ -166,9 +167,14 @@ export default function AttemptResultPage() {
         <span>Result</span>
       </div>
 
-      <h1 style={{ margin: "0 0 6px" }}>Result</h1>
-      <div className="pill">
-        status {safe?.attempt.status ?? "?"} · total {safe?.totals.score ?? 0}/{safe?.totals.max ?? 0}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
+        <div>
+          <h1 style={{ margin: "0 0 6px" }}>Result</h1>
+          <div className="pill">
+            status {safe?.attempt.status ?? "?"} · total {safe?.totals.score ?? 0}/{safe?.totals.max ?? 0}
+          </div>
+        </div>
+        {id ? <DeleteAttemptButton attemptId={id} /> : null}
       </div>
 
       {error ? <p style={{ color: "#b91c1c" }}>Network error: {error}</p> : null}

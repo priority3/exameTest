@@ -15,6 +15,42 @@ const defaultTitle = (type: string): string => {
   return `${type} ${ts}`;
 };
 
+/**
+ * Parse a GitHub URL to extract owner, repo, optional ref and subpath.
+ * Supports: github.com/owner/repo[/tree/ref[/subpath]]
+ */
+const parseGitHubUrl = (url: string): { owner: string; repo: string; ref?: string; subpath?: string } => {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`Invalid URL: ${url}`);
+  }
+
+  if (parsed.hostname !== "github.com") {
+    throw new Error("Only github.com URLs are supported");
+  }
+
+  const parts = parsed.pathname.replace(/^\/+|\/+$/g, "").split("/");
+  if (parts.length < 2 || !parts[0] || !parts[1]) {
+    throw new Error("Cannot extract owner/repo from URL");
+  }
+
+  const result: { owner: string; repo: string; ref?: string; subpath?: string } = {
+    owner: parts[0],
+    repo: parts[1],
+  };
+
+  if (parts.length >= 4 && parts[2] === "tree") {
+    result.ref = parts[3];
+    if (parts.length > 4) {
+      result.subpath = parts.slice(4).join("/");
+    }
+  }
+
+  return result;
+};
+
 export const registerSourceRoutes = async (app: FastifyInstance) => {
   app.get("/sources", async () => {
     const res = await pool.query(
@@ -40,11 +76,45 @@ export const registerSourceRoutes = async (app: FastifyInstance) => {
     const payload = parsed.data;
     await ensureDemoUser();
 
-    if (payload.type === "URL" || payload.type === "GITHUB") {
+    if (payload.type === "URL") {
       return reply.status(501).send({
         error: "Not implemented",
-        message: "MVP only supports PASTE and MARKDOWN_UPLOAD for now."
+        message: "URL source type is not yet supported."
       });
+    }
+
+    // --- GITHUB type: parse URL, create source, enqueue fetch job ---
+    if (payload.type === "GITHUB") {
+      let ghInfo: { owner: string; repo: string; ref?: string; subpath?: string };
+      try {
+        ghInfo = parseGitHubUrl(payload.url);
+      } catch (err) {
+        return reply.status(400).send({
+          error: "Invalid GitHub URL",
+          message: err instanceof Error ? err.message : String(err)
+        });
+      }
+
+      const title = payload.title?.trim() || `${ghInfo.owner}/${ghInfo.repo}`;
+
+      const sourceRes = await pool.query<{ id: string }>(
+        `INSERT INTO sources (user_id, type, title, status)
+         VALUES ($1, 'GITHUB', $2, 'PROCESSING')
+         RETURNING id`,
+        [DEMO_USER_ID, title]
+      );
+      const sourceId = sourceRes.rows[0]?.id;
+      if (!sourceId) {
+        throw new Error("Failed to create source");
+      }
+
+      await queue.add(
+        JOB_NAMES.fetchGithubSource,
+        { sourceId, owner: ghInfo.owner, repo: ghInfo.repo, ref: ghInfo.ref, subpath: ghInfo.subpath },
+        { attempts: 2, backoff: { type: "exponential", delay: 2000 } }
+      );
+
+      return reply.status(201).send({ id: sourceId, status: "PROCESSING" });
     }
 
     // Normalize to content_text / content_md

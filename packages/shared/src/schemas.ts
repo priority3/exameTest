@@ -25,13 +25,10 @@ export const CreateSourceUrlSchema = z.object({
   url: z.string().url()
 });
 
-// GitHub is planned; keep schema placeholder for now (MVP can skip implementation).
 export const CreateSourceGithubSchema = z.object({
   type: z.literal("GITHUB"),
   title: z.string().min(1).max(200).optional(),
-  repo: z.string().min(1).max(200), // "owner/repo"
-  ref: z.string().min(1).max(200).optional(), // branch | tag | sha
-  paths: z.array(z.string().min(1)).min(1).max(200)
+  url: z.string().url() // https://github.com/owner/repo[/tree/ref[/subpath]]
 });
 
 export const CreateSourceRequestSchema = z.discriminatedUnion("type", [

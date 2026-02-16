@@ -155,15 +155,11 @@ export default function AttemptPage() {
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
           <h2 style={{ margin: 0 }}>Answer</h2>
-          {attempt.status === "IN_PROGRESS" ? (
-            <button disabled={submitting} onClick={submit}>
-              {submitting ? "Submitting..." : "Submit"}
-            </button>
-          ) : (
+          {attempt.status !== "IN_PROGRESS" ? (
             <a href={`/attempt/${id}/result`} className="pill">
               View Result
             </a>
-          )}
+          ) : null}
         </div>
 
         {error ? <p style={{ color: "#b91c1c" }}>{error}</p> : null}
@@ -234,6 +230,14 @@ export default function AttemptPage() {
             </div>
           ))}
         </div>
+
+        {attempt.status === "IN_PROGRESS" ? (
+          <div style={{ marginTop: 18, display: "flex", justifyContent: "flex-end" }}>
+            <button disabled={submitting} onClick={submit}>
+              {submitting ? "Submitting..." : "Submit"}
+            </button>
+          </div>
+        ) : null}
       </div>
     </>
   );

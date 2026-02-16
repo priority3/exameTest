@@ -4,6 +4,7 @@ import { EVENT_CHANNELS, JOB_NAMES, QUEUE_NAME } from "@exametest/shared";
 import { env } from "./env.js";
 import { pool } from "./db.js";
 import { chunkAndEmbedSource } from "./jobs/chunkAndEmbedSource.js";
+import { fetchGithubSource } from "./jobs/fetchGithubSource.js";
 import { generatePaper } from "./jobs/generatePaper.js";
 import { gradeAttempt } from "./jobs/gradeAttempt.js";
 import { publishEvent } from "./events.js";
@@ -23,6 +24,31 @@ const worker = new Worker<JobPayload>(
         const sourceId = String((job.data as any)?.sourceId ?? "");
         try {
           await chunkAndEmbedSource(job as any);
+          return { ok: true };
+        } catch (err) {
+          if (sourceId) {
+            const msg = err instanceof Error ? err.message : String(err);
+            await pool.query(
+              `UPDATE sources
+               SET status = 'FAILED', error = $2, updated_at = NOW()
+               WHERE id = $1`,
+              [sourceId, msg]
+            );
+            await publishEvent(EVENT_CHANNELS.source(sourceId), {
+              type: "source",
+              sourceId,
+              status: "FAILED",
+              error: msg
+            });
+          }
+          throw err;
+        }
+      }
+
+      case JOB_NAMES.fetchGithubSource: {
+        const sourceId = String((job.data as any)?.sourceId ?? "");
+        try {
+          await fetchGithubSource(job as any);
           return { ok: true };
         } catch (err) {
           if (sourceId) {
