@@ -100,19 +100,44 @@ export const chatJson = async <T>(
   // NOTE: Some providers partially implement the OpenAI API and error on
   // extra params (we've seen 400 upstream_error when `temperature` is sent).
   // We try the full request first, then retry with a minimal payload.
+  // Additionally, the Responses API can throw TypeError when parsing
+  // malformed responses from some providers — we retry once on such errors.
   let response: any;
-  try {
-    const request: any = { model, input };
-    if (typeof params.temperature === "number") request.temperature = params.temperature;
-    response = await client.responses.create(request);
-  } catch (err) {
-    const status = (err as any)?.status;
-    const errType = (err as any)?.error?.type;
-    const mayRetry = status === 400 && errType === "upstream_error" && typeof params.temperature === "number";
-    if (!mayRetry) throw err;
+  const maxRetries = 2;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const request: any = { model, input };
+      if (typeof params.temperature === "number") request.temperature = params.temperature;
+      response = await client.responses.create(request);
+      break;
+    } catch (err) {
+      // Reason: OpenAI SDK throws TypeError ("Cannot use 'in' operator...")
+      // when the provider returns an empty or malformed response body.
+      // This is usually transient, so retry once before giving up.
+      const isTransientParseError = err instanceof TypeError && String(err.message).includes("'in' operator");
+      const status = (err as any)?.status;
+      const errType = (err as any)?.error?.type;
+      const mayRetryUpstream = status === 400 && errType === "upstream_error" && typeof params.temperature === "number";
 
-    // Retry without temperature.
-    response = await client.responses.create({ model, input } as any);
+      if (mayRetryUpstream && attempt === 0) {
+        // Retry without temperature for upstream_error.
+        try {
+          response = await client.responses.create({ model, input } as any);
+          break;
+        } catch (retryErr) {
+          if (retryErr instanceof TypeError && String(retryErr.message).includes("'in' operator")) {
+            if (attempt < maxRetries - 1) continue;
+          }
+          throw retryErr;
+        }
+      }
+
+      if (isTransientParseError && attempt < maxRetries - 1) {
+        continue;
+      }
+
+      throw err;
+    }
   }
 
   const content = extractTextFromResponse(response);

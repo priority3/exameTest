@@ -159,9 +159,11 @@ export const gradeAttempt = async (job: Job<{ attemptId: string }>) => {
       const isCorrect = Boolean(correct) && got === correct;
 
       const rationale = typeof q.answerKey?.rationale === "string" ? q.answerKey.rationale : "";
+      const rationaleBlock = rationale ? `\n\n**解析：**\n${rationale}` : "";
+
       const feedback = isCorrect
-        ? `正确。\n\n${rationale ? `解析：${rationale}` : ""}`.trim()
-        : `错误。正确答案：${correct || "(missing)"}。\n\n${rationale ? `解析：${rationale}` : ""}`.trim();
+        ? `**正确！** 你选择了 ${got}。${rationaleBlock}`.trim()
+        : `**错误。** 你选择了 ${got || "(未作答)"}，正确答案：**${correct || "(missing)"}**。${rationaleBlock}`.trim();
 
       await persistGrade({
         questionId: q.id,

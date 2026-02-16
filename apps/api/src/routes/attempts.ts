@@ -234,6 +234,21 @@ export const registerAttemptRoutes = async (app: FastifyInstance) => {
     return { attempt, totals: { score: totalScore, max: totalMax }, questions: qRes.rows, answers: ansRes.rows, grades: gradeRes.rows };
   });
 
+  app.delete("/attempts/:id", async (req, reply) => {
+    const id = (req.params as { id: string }).id;
+
+    const res = await pool.query(
+      `DELETE FROM attempts WHERE id = $1 AND user_id = $2 RETURNING id`,
+      [id, DEMO_USER_ID]
+    );
+
+    if (res.rowCount === 0) {
+      return reply.status(404).send({ error: "Not found" });
+    }
+
+    return reply.status(204).send();
+  });
+
   app.get("/wrong-items", async () => {
     const res = await pool.query(
       `SELECT wi.question_id AS "questionId", wi.last_wrong_at AS "lastWrongAt", wi.wrong_count AS "wrongCount", wi.weak_tags AS "weakTags"

@@ -76,16 +76,55 @@ export default async function SourcePage(props: { params: Promise<{ id: string }
 
       <div className="card">
         <h2 style={{ marginTop: 0 }}>Preview</h2>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {preview.documents.map((d) => (
-            <div key={d.id} style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 12 }}>
-              <div className="pill" style={{ marginBottom: 10 }}>
-                {d.docType} · {Math.round(d.bytes / 1024)} KB
-              </div>
-              <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{d.preview}</pre>
+
+        {source.type === "GITHUB" ? (
+          /* GitHub sources can have dozens of files — show a compact file
+             list instead of dumping 800 chars per document. */
+          <>
+            <p className="muted" style={{ marginTop: 0 }}>
+              {preview.documents.length} files fetched from repository
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {preview.documents.map((d) => {
+                const meta = d.meta as Record<string, unknown> | null;
+                const filePath = (meta?.path as string) ?? d.uri ?? d.id;
+                const lang = (meta?.language as string) ?? "";
+                return (
+                  <div
+                    key={d.id}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "6px 10px",
+                      borderRadius: 8,
+                      border: "1px solid var(--border)",
+                      background: "rgba(255,255,255,0.5)",
+                      fontSize: "0.9em",
+                    }}
+                  >
+                    <code style={{ wordBreak: "break-all" }}>{filePath}</code>
+                    <span className="pill" style={{ flexShrink: 0 }}>
+                      {lang ? `${lang} · ` : ""}{Math.round(d.bytes / 1024)} KB
+                    </span>
+                  </div>
+                );
+              })}
             </div>
-          ))}
-        </div>
+          </>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {preview.documents.map((d) => (
+              <div key={d.id} style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 12 }}>
+                <div className="pill" style={{ marginBottom: 10 }}>
+                  {d.docType} · {Math.round(d.bytes / 1024)} KB
+                </div>
+                <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{d.preview}</pre>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={{ height: 18 }} />

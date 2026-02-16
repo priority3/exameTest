@@ -75,7 +75,7 @@ export default async function Page() {
       </div>
 
       <div className="card">
-        <h2 style={{ marginTop: 0 }}>Import (Paste)</h2>
+        <h2 style={{ marginTop: 0 }}>Import Source</h2>
         <ImportSourceForm />
       </div>
 
