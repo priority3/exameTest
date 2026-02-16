@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { renderMarkdown } from "../../../lib/markdown";
 
 export default function TypewriterPre(props: {
   text: string;
@@ -34,6 +35,12 @@ export default function TypewriterPre(props: {
     return () => cancelAnimationFrame(raf);
   }, [charMs, fullText, maxDurationMs, minDurationMs]);
 
-  return <pre style={{ whiteSpace: "pre-wrap" }}>{shown}</pre>;
-}
+  const html = useMemo(() => renderMarkdown(shown), [shown]);
 
+  return (
+    <div
+      style={{ whiteSpace: "normal" }}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}

@@ -1,6 +1,7 @@
 import { API_BASE_URL } from "../../lib/config";
 import StartAttemptButton from "./start-attempt";
 import PaperAutoRefresh from "./auto-refresh";
+import DeletePaperButton from "./delete-paper-button";
 
 type PaperDetail = {
   id: string;
@@ -50,6 +51,10 @@ export default async function PaperPage(props: { params: Promise<{ id: string }>
       </div>
 
       {paper.error ? <p style={{ color: "#b91c1c" }}>Error: {paper.error}</p> : null}
+
+      <div style={{ marginTop: 12 }}>
+        <DeletePaperButton paperId={paper.id} />
+      </div>
 
       <div style={{ height: 18 }} />
 

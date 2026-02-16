@@ -228,37 +228,113 @@ export default function AttemptResultPage() {
             const qAnswerKey = (q as any)?.answerKey ?? {};
             const verdict = (g as any)?.verdict ?? {};
 
-            const boxStyle: React.CSSProperties = {
-              border: "1px solid var(--border)",
+            // Reason: each answer area gets a distinct left-border color so users
+            // can quickly scan which block is their answer vs. reference vs. feedback.
+            const baseBox: React.CSSProperties = {
               borderRadius: 12,
               padding: 12,
-              background: "rgba(255,255,255,0.55)"
+              borderLeft: "3px solid",
             };
+            const userBox: React.CSSProperties = {
+              ...baseBox,
+              borderLeftColor: "#3b82f6",
+              background: "rgba(59,130,246,0.06)",
+            };
+            const refBox: React.CSSProperties = {
+              ...baseBox,
+              borderLeftColor: "#22c55e",
+              background: "rgba(34,197,94,0.06)",
+            };
+            const suggestedBox: React.CSSProperties = {
+              ...baseBox,
+              borderLeftColor: "#a855f7",
+              background: "rgba(168,85,247,0.06)",
+            };
+            const feedbackBox: React.CSSProperties = {
+              ...baseBox,
+              borderLeftColor: "#f59e0b",
+              background: "rgba(245,158,11,0.06)",
+            };
+            const infoBox: React.CSSProperties = {
+              ...baseBox,
+              borderLeftColor: "var(--border)",
+              background: "rgba(255,255,255,0.55)",
+            };
+
+            const isCorrect = g ? Number(g.score) === Number(g.maxScore) : false;
+            const scoreColor = g ? (isCorrect ? "#22c55e" : "#ef4444") : "var(--muted)";
+
             return (
               <div key={q.id} style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 12 }}>
-                <div className="pill" style={{ marginBottom: 10 }}>
-                  Q{idx + 1} · {q.type} · {g ? `${g.score}/${g.maxScore}` : "pending"}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  <div className="pill">
+                    Q{idx + 1} · {q.type}
+                  </div>
+                  {g ? (
+                    <span style={{ fontWeight: 600, fontSize: 14, color: scoreColor }}>
+                      {g.score}/{g.maxScore}
+                    </span>
+                  ) : (
+                    <span className="muted" style={{ fontSize: 13 }}>pending</span>
+                  )}
                 </div>
                 <p style={{ marginTop: 0 }}>{q.prompt}</p>
 
                 {q.type === "MCQ" ? (
-                  <p className="muted" style={{ marginTop: 0 }}>
-                    your answer: <strong style={{ color: "var(--ink)" }}>{a?.answerOptionId ?? "-"}</strong> · correct:{" "}
-                    <strong style={{ color: "var(--ink)" }}>{qAnswerKey?.correctOptionId ?? "-"}</strong>
-                  </p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {q.options?.map((o) => {
+                      const isUserPick = a?.answerOptionId === o.id;
+                      const isCorrect = qAnswerKey?.correctOptionId === o.id;
+                      let bg = "transparent";
+                      let borderColor = "var(--border)";
+                      let leftColor = "var(--border)";
+                      if (isCorrect) {
+                        bg = "rgba(34,197,94,0.08)";
+                        borderColor = "rgba(34,197,94,0.3)";
+                        leftColor = "#22c55e";
+                      } else if (isUserPick) {
+                        bg = "rgba(239,68,68,0.08)";
+                        borderColor = "rgba(239,68,68,0.3)";
+                        leftColor = "#ef4444";
+                      }
+                      return (
+                        <div
+                          key={o.id}
+                          style={{
+                            display: "flex",
+                            alignItems: "baseline",
+                            gap: 8,
+                            padding: "8px 12px",
+                            borderRadius: 10,
+                            border: `1px solid ${borderColor}`,
+                            borderLeft: `3px solid ${leftColor}`,
+                            background: bg,
+                            fontSize: 14,
+                          }}
+                        >
+                          <strong style={{ color: isCorrect ? "#22c55e" : isUserPick ? "#ef4444" : "var(--muted)", minWidth: 18 }}>
+                            {o.id}
+                          </strong>
+                          <span>{o.text}</span>
+                          {isUserPick && !isCorrect ? <span style={{ color: "#ef4444", fontSize: 12, marginLeft: "auto" }}>Your pick</span> : null}
+                          {isCorrect ? <span style={{ color: "#22c55e", fontSize: 12, marginLeft: "auto" }}>{isUserPick ? "Correct" : "Answer"}</span> : null}
+                        </div>
+                      );
+                    })}
+                  </div>
                 ) : null}
 
                 {q.type === "SHORT_ANSWER" ? (
                   <>
                     <label>Your answer</label>
-                    <div style={boxStyle}>
+                    <div style={userBox}>
                       <div style={{ whiteSpace: "pre-wrap" }}>{a?.answerText?.trim() || "(empty)"}</div>
                     </div>
 
                     <div style={{ height: 10 }} />
 
                     <label>Reference answer</label>
-                    <div style={boxStyle}>
+                    <div style={refBox}>
                       <div style={{ whiteSpace: "pre-wrap" }}>{qAnswerKey?.referenceAnswer?.trim() || "(missing)"}</div>
                     </div>
 
@@ -266,7 +342,7 @@ export default function AttemptResultPage() {
                       <>
                         <div style={{ height: 10 }} />
                         <label>Suggested corrected answer</label>
-                        <div style={boxStyle}>
+                        <div style={suggestedBox}>
                           <div style={{ whiteSpace: "pre-wrap" }}>{verdict.suggestedAnswer.trim()}</div>
                         </div>
                       </>
@@ -277,12 +353,14 @@ export default function AttemptResultPage() {
                 {g ? (
                   <>
                     <label>Feedback</label>
-                    <TypewriterPre text={g.feedbackMd} />
+                    <div style={feedbackBox}>
+                      <TypewriterPre text={g.feedbackMd} />
+                    </div>
 
                     {Array.isArray(verdict?.actionableSuggestions) && verdict.actionableSuggestions.length > 0 ? (
                       <>
                         <label>Actionable suggestions</label>
-                        <div style={boxStyle}>
+                        <div style={infoBox}>
                           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                             {verdict.actionableSuggestions.map((s: any, i: number) => (
                               <div key={i} className="muted" style={{ whiteSpace: "pre-wrap" }}>
@@ -297,7 +375,7 @@ export default function AttemptResultPage() {
                     {Array.isArray(verdict?.missingPoints) && verdict.missingPoints.length > 0 ? (
                       <>
                         <label>Missing points</label>
-                        <div style={boxStyle}>
+                        <div style={{ ...infoBox, borderLeftColor: "#ef4444", background: "rgba(239,68,68,0.05)" }}>
                           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                             {verdict.missingPoints.map((m: any, i: number) => (
                               <div key={i} className="muted" style={{ whiteSpace: "pre-wrap" }}>
@@ -312,7 +390,7 @@ export default function AttemptResultPage() {
                     {Array.isArray(verdict?.misconceptions) && verdict.misconceptions.length > 0 ? (
                       <>
                         <label>Misconceptions</label>
-                        <div style={boxStyle}>
+                        <div style={{ ...infoBox, borderLeftColor: "#ef4444", background: "rgba(239,68,68,0.05)" }}>
                           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                             {verdict.misconceptions.map((m: any, i: number) => (
                               <div key={i} className="muted" style={{ whiteSpace: "pre-wrap" }}>
